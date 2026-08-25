@@ -1,931 +1,224 @@
 # Vortex
 
-> Open-source threat intelligence and security investigation platform built with Go.
+> Open-source threat intelligence and security investigation platform built with Go and Next.js.
 
-Vortex is a threat intelligence platform designed to collect security observations, extract Indicators of Compromise (IOCs), enrich them with external intelligence, correlate related activity, and provide analysts with actionable threat context.
-
-The project explores the intersection of **Go backend engineering, distributed systems, DevOps, and cybersecurity**.
+Vortex is a lightweight, distributed threat intelligence platform designed to ingest raw security telemetry, extract Indicators of Compromise (IOCs), enrich them with external threat intelligence, correlate related activity, and calculate explainable risk scores for security analysts.
 
 ---
 
-## ⚠️ Project Status
+## 🏗️ Architecture
 
-**Vortex is currently under active development.**
-
-The initial MVP is being developed as a focused 2-week engineering project.
-
-Vortex is **not intended to replace enterprise platforms** such as Splunk, Microsoft Sentinel, CrowdStrike, or commercial Threat Intelligence Platforms.
-
-Instead, the MVP focuses on demonstrating the core mechanics behind a modern threat intelligence workflow:
+Vortex is engineered using **Hexagonal Architecture (Ports and Adapters)**, ensuring core domain logic remains decoupled from databases, caches, message brokers, and transport layers.
 
 ```text
-Security Telemetry
-        │
-        ▼
-     Ingestion
-        │
-        ▼
-     Detection
-        │
-        ▼
-   IOC Extraction
-        │
-        ▼
-     Enrichment
-        │
-        ▼
-     Correlation
-        │
-        ▼
-   Risk Assessment
-        │
-        ▼
-      Alert
-        │
-        ▼
- Analyst Investigation
+               INBOUND (Driving)                      CORE                      OUTBOUND (Driven)
+         ┌───────────────────────────┐      ┌──────────────────────┐      ┌───────────────────────────┐
+         │                           │      │                      │      │                           │
+         │  • Gin REST API Handlers  │ ---> │  [Primary Ports]     │      │  • PostgreSQL Adapter     │
+HTTP ──> │    (internal/adapter/     │      │   - IngestionService │      │    (sqlc + pgx/v5)        │
+         │     handler/http)         │      │   - QueryService     │      │                           │
+         │                           │      │                      │      │  • Redis Adapter          │
+         ├───────────────────────────┤      │  [Domain & Services] │ ---> │    (24h Caching)          │
+         │                           │      │   - Detection Rules  │      │                           │
+RabbitMQ │  • Queue Consumer Handler │ ---> │   - Risk Scoring     │      │  • RabbitMQ Adapter       │
+   ───>  │    (cmd/worker)           │      │   - IOC Extractor    │      │    (Persistent Pub/Sub)   │
+         │                           │      │   - Correlation      │      │                           │
+         │                           │      │                      │      │  • External TI Adapters   │
+         └───────────────────────────┘      │  [Secondary Ports]   │      │    (GeoIP, VirusTotal)    │
+                                            │   - Repositories     │      │                           │
+                                            │   - Cache / Broker   │      └───────────────────────────┘
+                                            └──────────────────────┘
 ```
 
 ---
 
-# Features
-
-## 🔍 Security Event Ingestion
-
-Vortex accepts normalized security events from different security sources.
-
-Planned sources include:
-
-- Honeypots
-- IDS
-- WAF
-- Web application logs
-- Authentication logs
-- Network security tools
-- Custom security sensors
-
-All incoming events are normalized into a common internal event format.
-
-Example:
-
-```json
-{
-  "timestamp": "2026-08-25T10:00:00Z",
-  "source": "honeypot",
-  "source_ip": "185.10.20.30",
-  "destination_port": 22,
-  "protocol": "tcp",
-  "attack_type": "ssh_bruteforce",
-  "severity": "high",
-  "confidence": 0.90
-}
-```
-
----
-
-# 🛡️ Attack Detection
-
-Vortex includes lightweight rule-based detection for common attack patterns.
-
-Initial MVP detections include:
-
-- SSH brute force
-- Port scanning
-- Credential stuffing
-- SQL injection
-- Cross-site scripting (XSS)
-- Path traversal
-- Malware download observations
-- Suspicious command execution
-
-Vortex intentionally does not attempt to become a complete IDS.
-
-Instead, detection produces **security observations** that can subsequently be enriched and correlated.
-
----
-
-# 🧩 IOC Extraction
-
-Vortex automatically extracts Indicators of Compromise from security events.
-
-Supported IOC types include:
-
-| Indicator | Example |
-|---|---|
-| IPv4 | `185.10.20.30` |
-| IPv6 | `2001:db8::1` |
-| Domain | `evil-example.com` |
-| URL | `https://evil-example.com/payload` |
-| SHA256 | `abc123...` |
-| SHA1 | `abc123...` |
-| MD5 | `abc123...` |
-| Email | `attacker@example.com` |
-| ASN | `AS12345` |
-
-Each indicator receives its own historical record.
-
----
-
-# 🌐 Threat Intelligence Enrichment
-
-Vortex enriches discovered indicators with external intelligence.
-
-For example:
+## 🔄 Core Pipeline
 
 ```text
-185.10.20.30
+Security Telemetry (Honeypot, WAF, IDS, Firewall)
        │
-       ├── Reputation
-       ├── GeoIP
-       ├── ASN
-       ├── WHOIS
-       ├── Threat Feeds
-       └── Historical Observations
-```
-
-Hash enrichment can provide:
-
-```text
-SHA256
-  │
-  └── External Malware Intelligence
-        │
-        ├── Detection ratio
-        ├── File type
-        ├── Reputation
-        └── Malware family
-```
-
-External intelligence is cached to reduce unnecessary API requests.
-
----
-
-# 🔗 Threat Correlation
-
-Vortex correlates indicators, events, and observations to identify relationships between seemingly separate security events.
-
-Example:
-
-```text
-                185.10.20.30
-                 /    |    \
-                /     |     \
-               ▼      ▼      ▼
-          Port Scan SSH BF   SQLi
-                       │
-                       ▼
-                  malware.exe
-                       │
-                       ▼
-                 SHA256 abc123
-                       │
-                       ▼
-              evil-example.com
-```
-
-This allows analysts to move from an individual IOC toward a broader understanding of the activity surrounding it.
-
----
-
-# 📊 Risk Scoring
-
-Vortex calculates an explainable risk score from multiple signals.
-
-Example:
-
-```text
-Reputation       0–30
-Attack Severity  0–25
-Frequency        0–20
-Confidence       0–15
-Correlation      0–10
-----------------------
-Maximum          100
-```
-
-Risk levels:
-
-| Score | Level |
-|---:|---|
-| 0–29 | Informational |
-| 30–49 | Low |
-| 50–69 | Medium |
-| 70–84 | High |
-| 85–100 | Critical |
-
-Risk and confidence are intentionally treated as separate concepts.
-
-For example:
-
-```text
-Risk:       91/100
-Confidence: 65%
-```
-
-means the potential threat is significant, but the available evidence is not yet highly conclusive.
-
----
-
-# 🎯 MITRE ATT&CK Mapping
-
-Observed behaviors can be mapped to MITRE ATT&CK techniques.
-
-Examples:
-
-```text
-SSH Brute Force
-      ↓
-T1110 — Brute Force
-
-Port Scanning
-      ↓
-T1046 — Network Service Scanning
-
-Exploit Public-Facing Application
-      ↓
-T1190
-```
-
-This provides additional context for analysts investigating an indicator or attack.
-
----
-
-# 🚨 Alerting
-
-Vortex generates alerts when indicators or observations meet configured risk thresholds.
-
-Example:
-
-```text
-┌─────────────────────────────────────┐
-│ 🚨 HIGH RISK THREAT                 │
-├─────────────────────────────────────┤
-│ IP:         185.10.20.30            │
-│ Risk:       91 / 100                │
-│ Confidence: 94%                     │
-│                                     │
-│ Observed:                           │
-│ • Port scanning                     │
-│ • SSH brute force                   │
-│ • Malware download                  │
-│                                     │
-│ ATT&CK:                             │
-│ • T1046                             │
-│ • T1110                             │
-└─────────────────────────────────────┘
-```
-
-Alert states:
-
-- `open`
-- `investigating`
-- `resolved`
-- `false_positive`
-
----
-
-# 🕸️ Relationship Investigation
-
-Vortex provides an investigation view for exploring relationships between indicators.
-
-Example:
-
-```text
-                    ┌──────────────┐
-                    │ 185.10.20.30 │
-                    └──────┬───────┘
-                 ┌─────────┼─────────┐
-                 │         │         │
-                 ▼         ▼         ▼
-             Port Scan   SSH BF     SQLi
-                           │
-                           ▼
-                      malware.exe
-                           │
-                           ▼
-                     SHA256 abc123
-                           │
-                           ▼
-                  evil-example.com
-```
-
-The goal is to allow an analyst to answer:
-
-> "What else is associated with this indicator?"
-
----
-
-# 🏗️ Architecture
-
-High-level MVP architecture:
-
-```text
-                         ┌──────────────────┐
-                         │     Next.js      │
-                         │    Dashboard     │
-                         └────────┬─────────┘
-                                  │
-                                  │ REST API
-                                  ▼
-                         ┌──────────────────┐
-                         │    Vortex API    │
-                         │       Go         │
-                         └────────┬─────────┘
-                                  │
-                 ┌────────────────┼────────────────┐
-                 │                │                │
-                 ▼                ▼                ▼
-          ┌────────────┐   ┌───────────┐   ┌────────────┐
-          │ PostgreSQL │   │   Redis   │   │ RabbitMQ   │
-          └────────────┘   └───────────┘   └─────┬──────┘
-                                                  │
-                                                  ▼
-                                         ┌────────────────┐
-                                         │ Vortex Worker  │
-                                         ├────────────────┤
-                                         │ Detection      │
-                                         │ Enrichment     │
-                                         │ Correlation    │
-                                         │ Risk Scoring   │
-                                         └───────┬────────┘
-                                                 │
-                                  ┌──────────────┼──────────────┐
-                                  ▼              ▼              ▼
-                              GeoIP        External TI    Threat Feeds
-```
-
-Security telemetry enters through:
-
-```text
-Honeypot ──────┐
-IDS ───────────┤
-WAF ───────────┤
-Application ───┤
-Auth Logs ─────┤
-Network Logs ──┤
-               ▼
-        Vortex Ingestion
-```
-
----
-
-# 🔄 Core Data Flow
-
-A typical Vortex investigation looks like this:
-
-```text
-1. Attacker generates suspicious activity
-                    │
-                    ▼
-2. Security sensor produces an event
-                    │
-                    ▼
-3. Vortex ingests and normalizes event
-                    │
-                    ▼
-4. Detection engine classifies behavior
-                    │
-                    ▼
-5. IOC extraction identifies IP/domain/hash
-                    │
-                    ▼
-6. IOC is stored
-                    │
-                    ▼
-7. Enrichment worker queries external intelligence
-                    │
-                    ▼
-8. Intelligence is cached and stored
-                    │
-                    ▼
-9. Correlation engine searches historical activity
-                    │
-                    ▼
-10. Risk + confidence are calculated
-                    │
-                    ▼
-11. MITRE ATT&CK techniques are assigned
-                    │
-                    ▼
-12. Alert is generated
-                    │
-                    ▼
-13. Analyst investigates IOC
-```
-
----
-
-# 🧱 Technology Stack
-
-## Backend
-
-- Go
-- Gin
-- PostgreSQL
-- Redis
-- RabbitMQ
-
-## Frontend
-
-- Next.js
-- TypeScript
-
-## Infrastructure
-
-- Docker
-- Docker Compose
-- Linux
-- Nginx / reverse proxy
-
-## Observability
-
-- Prometheus
-- Grafana
-
-## Security Intelligence
-
-- VirusTotal
-- GeoIP
-- ASN / WHOIS
-- Public threat intelligence feeds
-- MITRE ATT&CK
-
----
-
-# 🗄️ Data Model
-
-Core entities:
-
-```text
-Event
- │
- ├── Observation
- │
- └── Indicator
+       ▼
+1. Ingestion & Normalization ──► PostgreSQL + RabbitMQ
        │
-       ├── Enrichment
+       ▼
+2. Worker Pipeline
+   ├── IOC Extraction (IP, Domain, URL, SHA256, MD5)
+   ├── Detection Engine (SSH Brute Force, Port Scan, SQLi, XSS, Malware)
+   │     └─► MITRE ATT&CK Mapping (T1110, T1046, T1190, T1059, T1083, T1105)
+   ├── External Enrichment (ip-api.com GeoIP + VirusTotal v3)
+   ├── Redis 24h Intelligence Caching
+   ├── Graph Correlation (IP ↔ Domain ↔ File Hash)
+   └── 5-Factor Risk & Confidence Scoring
        │
-       └── Relationship
-              │
-              ├── Domain
-              ├── IP
-              ├── Hash
-              ├── Malware
-              └── Attack
-```
-
-Primary database tables:
-
-```text
-events
-indicators
-observations
-enrichments
-relationships
-alerts
+       ▼
+3. Autonomous Alerting (Threshold ≥ 70)
+       │
+       ▼
+4. Analyst Web Dashboard (Next.js 16 + shadcn/ui)
 ```
 
 ---
 
-# 🚀 Running Locally
+## 📊 Explainable Risk Scoring
 
-## Requirements
+Vortex evaluates threat risk using a transparent 5-factor calculation:
 
-- Go
-- Docker
-- Docker Compose
-- Node.js
-- npm / pnpm
+$$\text{Risk Score} = \text{Reputation}(0\text{--}30) + \text{Severity}(0\text{--}25) + \text{Frequency}(0\text{--}20) + \text{Confidence}(0\text{--}15) + \text{Correlation}(0\text{--}10)$$
 
-## Clone
+| Score Range | Risk Level | Action |
+|:---:|:---:|:---|
+| **85 – 100** | 🔴 Critical | Immediate triage & alert dispatch |
+| **70 – 84** | 🟠 High | High-priority security alert |
+| **50 – 69** | 🟡 Medium | Logged & monitored |
+| **30 – 49** | 🔵 Low | Informational record |
+| **0 – 29** | ⚪ Info | Baseline telemetry |
 
-```bash
-git clone https://github.com/<your-username>/vortex-ti.git
-cd vortex-ti
+---
+
+## 🧱 Tech Stack
+
+- **Backend**: Go (1.25+), Gin, `pgx/v5`, `sqlc`, `amqp091-go`, `go-redis/v9`
+- **Frontend**: Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS v4, shadcn/ui, Lucide Icons
+- **Database & Storage**: PostgreSQL 17, Redis 8
+- **Message Broker**: RabbitMQ 3.13
+- **Intelligence Providers**: Free GeoIP (`ip-api.com`), VirusTotal v3 API, MITRE ATT&CK Framework
+
+---
+
+## 📂 Project Structure
+
+```text
+vortex/
+├── cmd/
+│   ├── api/main.go              # REST API server entrypoint (:8080)
+│   ├── worker/main.go           # Pipeline background consumer daemon
+│   └── collector/main.go        # Telemetry simulator CLI
+├── db/
+│   ├── schema/vortex_schema.sql # PostgreSQL DDL schema & indexes
+│   └── queries/                 # SQL queries for sqlc code generation
+├── internal/
+│   ├── core/                    # Pure Domain & Hexagonal Ports
+│   │   ├── domain/              # Entities (Event, Indicator, Alert, RiskScore)
+│   │   ├── port/                # Driving & Driven interfaces
+│   │   ├── service/             # Extractor, Detection, Enrichment, Correlation, Risk, Alert
+│   │   └── util/                # Network validators & IP/hash regex
+│   └── adapter/                 # Infrastructure Adapters
+│       ├── config/              # Environment config container
+│       ├── handler/http/        # Gin REST API controllers & router
+│       ├── storage/postgres/    # sqlc generated code & repository adapters
+│       ├── storage/redis/       # Redis cache repository adapter
+│       ├── storage/rabbitmq/    # RabbitMQ publisher & consumer
+│       └── enrichment/          # GeoIP and VirusTotal API clients
+└── dashboard_view/              # Next.js 16 SOC web dashboard
+    ├── app/                     # App router pages (Overview, IOCs, Investigation, Alerts)
+    ├── components/              # shadcn/ui & cybersecurity widgets
+    └── lib/                     # Typed API client & interfaces
 ```
 
-## Configure Environment
+---
+
+## 🚀 Quick Start
+
+### 1. Prerequisites
+
+- Go (1.23+)
+- Node.js (18+) & npm
+- Docker & Docker Compose
+
+### 2. Configure Environment
 
 ```bash
 cp .env.example .env
 ```
 
-Configure the required API keys and database credentials.
-
-Example:
-
-```env
-DATABASE_URL=postgres://vortex:vortex@postgres:5432/vortex
-REDIS_URL=redis://redis:6379
-RABBITMQ_URL=amqp://vortex:vortex@rabbitmq:5672/
-
-VIRUSTOTAL_API_KEY=
-```
-
-## Start Infrastructure
+### 3. Start Infrastructure
 
 ```bash
 docker compose up -d
 ```
 
-## Run Migrations
+### 4. Initialize Database Schema
 
 ```bash
-make migrate
+docker exec -i postgres psql -U vortex -d vortex < db/schema/vortex_schema.sql
 ```
 
-## Start API
+### 5. Run the Application
+
+In separate terminal windows:
 
 ```bash
-go run ./cmd/api
-```
-
-## Start Worker
-
-```bash
+# Terminal 1: Background Worker Daemon
 go run ./cmd/worker
-```
 
-## Start Frontend
+# Terminal 2: REST API Server
+go run ./cmd/api
 
-```bash
-cd web
+# Terminal 3: Next.js Frontend Dashboard
+cd dashboard_view
 npm install
 npm run dev
 ```
 
----
+Open **`http://localhost:3000`** to access the dashboard.
 
-# 🧪 Example Event
+### 6. Send Test Telemetry
 
-Send a security event:
+Dispatch realistic attack scenarios (SSH brute force, SQL injection, malware downloads, port scans):
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/events \
-  -H "Content-Type: application/json" \
-  -d '{
-    "timestamp": "2026-08-25T10:00:00Z",
-    "source": "honeypot",
-    "source_ip": "185.10.20.30",
-    "destination_port": 22,
-    "protocol": "tcp",
-    "attack_type": "ssh_bruteforce",
-    "severity": "high",
-    "confidence": 0.9
-  }'
+go run ./cmd/collector -scenario=all
 ```
 
-Vortex processes the event:
-
-```text
-Event
-  ↓
-SSH brute-force detection
-  ↓
-IOC extraction
-  ↓
-185.10.20.30
-  ↓
-Enrichment
-  ↓
-Correlation
-  ↓
-Risk scoring
-  ↓
-Alert
-```
+Or trigger events directly using the **"Ingest Telemetry"** button in the dashboard UI.
 
 ---
 
-# 📡 API
+## 📡 REST API Endpoints
 
-Base URL:
+Base URL: `/api/v1`
 
-```text
-/api/v1
-```
-
-## Events
-
-```http
-POST /events
-GET  /events
-GET  /events/:id
-```
-
-## Indicators
-
-```http
-GET /indicators
-GET /indicators/:type/:value
-GET /indicators/:id/timeline
-GET /indicators/:id/relationships
-```
-
-## Alerts
-
-```http
-GET   /alerts
-GET   /alerts/:id
-PATCH /alerts/:id
-```
-
-## Statistics
-
-```http
-GET /stats
-```
-
-API documentation will be provided through OpenAPI/Swagger.
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `POST` | `/events` | Ingest normalized security telemetry |
+| `GET` | `/events` | List ingested events (paginated) |
+| `GET` | `/events/:id` | Get event by UUID |
+| `GET` | `/indicators` | List extracted IOCs (filterable by `type`) |
+| `GET` | `/indicators/:type/:value` | Get deep investigation context (observations, enrichments, relationships) |
+| `GET` | `/alerts` | List security alerts (filterable by `status`) |
+| `GET` | `/alerts/:id` | Get alert by UUID |
+| `PATCH`| `/alerts/:id` | Update alert triage status (`investigating`, `resolved`, `false_positive`) |
+| `GET` | `/stats` | Aggregated dashboard statistics |
+| `GET` | `/health` | System health check probe |
 
 ---
 
-# 🔐 Security Considerations
+## 🗺️ Roadmap
 
-Vortex is intended to process security telemetry and potentially untrusted data.
+### MVP (Completed)
+- [x] Hexagonal Architecture (Ports and Adapters)
+- [x] Normalized security event ingestion
+- [x] Rule-based threat detection (SSH brute force, port scan, SQLi, XSS, malware downloads)
+- [x] Automated IOC extraction (IP, Domain, URL, SHA256, MD5)
+- [x] Multi-source threat intelligence enrichment (GeoIP + VirusTotal v3)
+- [x] Redis 24h caching layer
+- [x] RabbitMQ asynchronous worker pipeline
+- [x] Multi-factor explainable risk scoring (0–100)
+- [x] Threat relationship graph correlation
+- [x] MITRE ATT&CK technique mapping
+- [x] Autonomous threshold-based alerting ($\text{Risk} \ge 70$)
+- [x] Next.js SOC analyst dashboard (Overview, IOC Explorer, Deep Investigation, Alert Center)
+- [x] Telemetry simulator CLI (`cmd/collector`)
+- [x] Docker deployment setup
 
-Security considerations include:
-
-- Input validation
-- Parameterized SQL queries
-- API authentication
-- Rate limiting
-- Secret management
-- Container hardening
-- Dependency scanning
-- Structured logging
-- Avoiding unnecessary storage of sensitive information
-- External API failure handling
-
-Vortex should not be deployed directly to the public internet without appropriate authentication, TLS, network controls, and operational hardening.
-
----
-
-# 📈 Observability
-
-Vortex exposes application metrics for Prometheus.
-
-Example metrics:
-
-```text
-vortex_events_ingested_total
-vortex_events_processed_total
-vortex_detection_total
-vortex_enrichment_total
-vortex_enrichment_errors_total
-vortex_alerts_total
-vortex_processing_latency
-vortex_queue_depth
-```
-
-Grafana is used to visualize system health and processing performance.
+### Next Iterations
+- [ ] Prometheus metrics & Grafana dashboard integration
+- [ ] STIX 2.1 / TAXII 2.1 threat feed consumer
+- [ ] Suricata & Zeek log parsers
+- [ ] Role-Based Access Control (RBAC) & authentication
 
 ---
 
-# 🧪 Testing
+## 📜 License
 
-Vortex uses multiple layers of testing.
-
-## Unit Tests
-
-- Event normalization
-- IOC extraction
-- Detection rules
-- Risk scoring
-- Confidence scoring
-- Correlation
-
-## Integration Tests
-
-- API → PostgreSQL
-- API → RabbitMQ
-- Worker → Redis
-- Worker → External Intelligence Providers
-
-## End-to-End Tests
-
-```text
-Security Event
-      ↓
-Detection
-      ↓
-IOC
-      ↓
-Enrichment
-      ↓
-Correlation
-      ↓
-Risk
-      ↓
-Alert
-      ↓
-Investigation
-```
-
----
-
-# 🗺️ Roadmap
-
-## MVP
-
-- [x] Project architecture
-- [ ] Event ingestion
-- [ ] Security event normalization
-- [ ] SSH brute-force detection
-- [ ] Port scan detection
-- [ ] Credential stuffing detection
-- [ ] SQLi detection
-- [ ] XSS detection
-- [ ] Path traversal detection
-- [ ] IOC extraction
-- [ ] IP enrichment
-- [ ] Domain enrichment
-- [ ] Hash enrichment
-- [ ] Redis caching
-- [ ] RabbitMQ workers
-- [ ] IOC correlation
-- [ ] Risk scoring
-- [ ] MITRE ATT&CK mapping
-- [ ] Alerting
-- [ ] Analyst dashboard
-- [ ] IOC investigation
-- [ ] Relationship visualization
-- [ ] Prometheus metrics
-- [ ] Grafana dashboard
-- [ ] Docker deployment
-- [ ] CI/CD
-
----
-
-# 🔮 Future Roadmap
-
-## V2
-
-Potential V2 features include:
-
-- STIX 2.1 support
-- TAXII integration
-- Additional threat intelligence feeds
-- Zeek integration
-- Suricata integration
-- Automated IOC expiration
-- Advanced correlation
-- Threat campaign tracking
-- Improved detection engine
-- YARA integration
-- Sigma rule support
-
-## V3
-
-Longer-term possibilities include:
-
-- Distributed collectors
-- Kubernetes deployment
-- Multi-tenancy
-- RBAC
-- Advanced threat graphs
-- ML-assisted anomaly detection
-- Malware analysis pipeline
-- Automated response / SOAR
-- Threat actor and campaign modeling
-
----
-
-# 🧠 Design Philosophy
-
-Vortex is intentionally built around a separation of responsibilities.
-
-```text
-IDS
- ↓
-"What happened?"
-
-SIEM
- ↓
-"What events are happening?"
-
-Threat Intelligence
- ↓
-"What do we know about these indicators?"
-
-Vortex
- ↓
-"How can we connect those observations and intelligence
-into useful context for an analyst?"
-```
-
-Vortex therefore does not attempt to replace an IDS or SIEM.
-
-Instead, it can consume observations from those systems and transform raw security events into contextualized threat intelligence.
-
----
-
-# 🎯 MVP Demo
-
-The intended demonstration is:
-
-```text
-                    ATTACKER
-                       │
-                       │
-              ┌────────▼────────┐
-              │    Honeypot     │
-              └────────┬────────┘
-                       │
-                  SSH brute force
-                       │
-                       ▼
-              ┌─────────────────┐
-              │ Vortex Ingest   │
-              └────────┬────────┘
-                       │
-                       ▼
-              ┌─────────────────┐
-              │    Detection    │
-              └────────┬────────┘
-                       │
-                       ▼
-                   IOC: IP
-                       │
-                       ▼
-              ┌─────────────────┐
-              │   Enrichment    │
-              └────────┬────────┘
-                       │
-             ┌─────────┼─────────┐
-             ▼         ▼         ▼
-          GeoIP      ASN     Reputation
-                       │
-                       ▼
-              ┌─────────────────┐
-              │   Correlation   │
-              └────────┬────────┘
-                       │
-                       ▼
-                Risk: 91/100
-                       │
-                       ▼
-              ┌─────────────────┐
-              │      Alert      │
-              └────────┬────────┘
-                       │
-                       ▼
-                Analyst View
-                       │
-              ┌────────┼────────┐
-              ▼        ▼        ▼
-           Timeline  ATT&CK   Graph
-```
-
----
-
-# 🤝 Contributing
-
-Contributions, issues, and security-related discussions are welcome.
-
-Before contributing:
-
-1. Fork the repository.
-2. Create a feature branch.
-3. Make your changes.
-4. Add tests where appropriate.
-5. Run the test suite.
-6. Open a pull request.
-
----
-
-# ⚠️ Disclaimer
-
-Vortex is an educational and research-oriented security project.
-
-Only use Vortex and its associated security testing components against systems and infrastructure that you own or have explicit authorization to test.
-
-The authors are not responsible for misuse of the software.
-
----
-
-# 📜 License
-
-Vortex is intended to be released under the **Apache License 2.0**.
-
-See [`LICENSE`](LICENSE) for details.
-
----
-
-# 👤 Author
-
-Built by **Yehezkiel Wiradhika**.
-
-Focused on:
-
-```text
-Go Backend Engineering
-        +
-DevOps / Cloud
-        +
-Cybersecurity
-        +
-Distributed Systems
-```
-
-Vortex is part of an ongoing effort to explore production-oriented security engineering and backend infrastructure.
+Licensed under the [Apache 2.0 License](LICENSE).

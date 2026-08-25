@@ -1,36 +1,65 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Vortex Dashboard
+
+Web-based analyst interface for the Vortex Threat Intelligence and Security Investigation platform.
+
+Built with **Next.js 16 (App Router)**, **Tailwind CSS v4**, and **shadcn/ui**.
+
+---
+
+## Features
+
+- **SOC Overview (`/`)**: High-level telemetry statistics, real-time event stream with MITRE ATT&CK tagging, and active high-risk alerts.
+- **IOC Explorer (`/indicators`)**: Filter and search through extracted indicators (IPs, domains, hashes, URLs) with risk scoring.
+- **Deep Investigation (`/investigation/[type]/[value]`)**:
+  - Explainable 5-factor risk scoring breakdown (Reputation, Severity, Frequency, Confidence, Correlation).
+  - External threat intelligence (GeoIP geolocation, ASN, VirusTotal detection ratios, malware families).
+  - Chronological observation timeline mapped to MITRE techniques.
+  - Threat correlation graph showing related indicators and payloads.
+- **Alert Center (`/alerts`)**: Incident triage dashboard supporting status transitions (`open` → `investigating` → `resolved` → `false_positive`).
+- **Telemetry Ingestion Modal**: UI simulator to dispatch sample security telemetry (SSH brute force, SQL injection, malware downloads, port scans) directly to the Go API.
+
+---
+
+## Tech Stack
+
+- **Framework**: Next.js 16 (App Router, Turbopack, React 19)
+- **Styling**: Tailwind CSS v4, Lucide Icons
+- **Components**: shadcn/ui base components
+- **State & Networking**: Native fetch client connecting to the Vortex Go API
+
+---
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+Ensure the Vortex Go backend is running on `http://localhost:8080` (or configure via environment variable).
+
+### Environment Variables
+
+Create a `.env.local` file (optional, defaults to `http://localhost:8080/api/v1`):
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8080/api/v1
+```
+
+### Installation
+
+```bash
+npm install
+```
+
+### Development Server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Production Build
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run build
+npm run start
+```
