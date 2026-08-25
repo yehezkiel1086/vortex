@@ -1,0 +1,20 @@
+# https://taskfile.dev
+
+version: '3'
+
+dotenv:
+  - .env
+
+tasks:
+  compose:up:
+    desc: "run docker compose services"
+    cmd: docker compose up -d
+  
+  compose:down:
+    desc: "stop docker compose services"
+    cmd: docker compose down
+
+  db:cli:
+    desc: "access docker compose postgres db"
+    cmd: docker exec -it postgres psql -U {{ .DB_USER }} -b {{ .DB_NAME }}
+
