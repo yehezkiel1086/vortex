@@ -18,3 +18,26 @@ tasks:
     desc: "access docker compose postgres db"
     cmd: docker exec -it postgres psql -U {{ .DB_USER }} -b {{ .DB_NAME }}
 
+  db:migrate:
+    desc: "migrate db schema"
+    cmd: ocker exec -i postgres psql -U ${{ .DB_USER }} -d {{ .DB_NAME }} < db/schema/vortex_schema.sql
+
+  run:worker:
+    desc: "run cmd/worker"
+    cmd: go run ./cmd/worker
+  
+  run:api:
+    desc: "run cmd/api"
+    cmd: go run ./cmd/api
+  
+  run:collector:
+    desc: "run cmd/collector"
+    cmd: go run ./cmd/collector -scenario=all
+
+  view:alerts:
+    desc: "view generated alerts"
+    cmd: curl http://localhost:{{ .HTTP_PORT }}/api/v1/alerts
+  
+  view:matrices:
+    desc: "view dashboard matrices"
+    cmd: curl http://localhost:{{ .HTTP_PORT }}/api/v1/stats
